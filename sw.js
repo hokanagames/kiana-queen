@@ -1,0 +1,10 @@
+// Kiana Queen offline cache (made by tools/build.js — do not edit by hand)
+const CACHE="kq-1.0.0-b930e92bf6";
+const FILES=["./","fonts/LICENSES.txt","fonts/baloo-bhaijaan-2-arabic-500-normal.woff2","fonts/baloo-bhaijaan-2-arabic-600-normal.woff2","fonts/baloo-bhaijaan-2-latin-500-normal.woff2","fonts/baloo-bhaijaan-2-latin-600-normal.woff2","fonts/baloo-bhaijaan-2-latin-ext-500-normal.woff2","fonts/baloo-bhaijaan-2-latin-ext-600-normal.woff2","fonts/fonts.css","fonts/lalezar-arabic-400-normal.woff2","fonts/lalezar-latin-400-normal.woff2","fonts/lalezar-latin-ext-400-normal.woff2","fonts/vazirmatn-arabic-400-normal.woff2","fonts/vazirmatn-arabic-600-normal.woff2","fonts/vazirmatn-arabic-800-normal.woff2","fonts/vazirmatn-latin-400-normal.woff2","fonts/vazirmatn-latin-600-normal.woff2","fonts/vazirmatn-latin-800-normal.woff2","fonts/vazirmatn-latin-ext-400-normal.woff2","fonts/vazirmatn-latin-ext-600-normal.woff2","fonts/vazirmatn-latin-ext-800-normal.woff2","icons/apple-touch-icon.png","icons/favicon-64.png","icons/icon-192.png","icons/icon-512.png","icons/maskable-192.png","icons/maskable-512.png","index.html","js/art.js","js/audio.js","js/ch1.js","js/ch2.js","js/ch3.js","js/ch4.js","js/ch5.js","js/chase.js","js/game.js","js/levels.js","js/sim.js","js/story.js","manifest.webmanifest","privacy.html"];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()));});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith('kq-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
+self.addEventListener('fetch',e=>{
+  const r=e.request;if(r.method!=='GET'||new URL(r.url).origin!==location.origin)return;
+  e.respondWith(caches.open(CACHE).then(c=>c.match(r,{ignoreSearch:true}).then(hit=>hit||fetch(r).then(res=>{if(res.ok&&res.type==='basic')c.put(r,res.clone());return res;})
+    .catch(()=>r.mode==='navigate'?c.match('./'):Response.error()))));
+});
