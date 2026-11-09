@@ -202,7 +202,20 @@ function layout(){
   const s=Math.max(10,Math.floor(Math.min(aw/G.L.W,ah/G.L.H)));
   G.s=s;G.ox=Math.round((vw-s*G.L.W)/2);G.oy=Math.round(top+(ah-s*G.L.H)/2);
 }
-let dprCap=2,slowT=0,slowN=0;
+/* Quality governor for slow phones. Every ~4 s of play: if most frames are slow and the drawing (GPU) is the
+   bottleneck, render at a lower pixel density; if our own code is the bottleneck in a chase, run the chase at a
+   steady 30 fps instead. Reset whenever the player goes back to the tower/title. */
+let dprCap=2,cap30=false,gT=0,gSlow=0,gJs=0;
+function govern(raw,js){
+  if(document.hidden||raw>.5||cap30||!(mode==='play'||mode==='scene'))return;
+  gT+=raw;gJs+=js/1000;if(raw>.028)gSlow+=raw;
+  if(gT<4)return;
+  const slow=gSlow/gT>.5,jsShare=gJs/gT;gT=gSlow=gJs=0;
+  if(!slow)return;
+  if(jsShare<.4&&dprCap>1&&(window.devicePixelRatio||1)>1){dprCap=dprCap>1.5?1.5:1;resize();}
+  else if(mode==='play'&&G&&G.chase)cap30=true;
+}
+function resetQuality(){cap30=false;gT=gSlow=gJs=0;if(dprCap<2){dprCap=2;resize();}}
 function resize(){
   dpr=Math.min(dprCap,window.devicePixelRatio||1);vw=innerWidth;vh=innerHeight;
   cv.width=Math.round(vw*dpr);cv.height=Math.round(vh*dpr);cv.style.width=vw+'px';cv.style.height=vh+'px';
@@ -593,7 +606,7 @@ function tileLayers(){
   const mk=draw=>{const c=document.createElement('canvas');c.width=Math.ceil(w*dpr);c.height=Math.ceil(h*dpr);const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,pad*dpr,pad*dpr);draw(x);return c;};
   const f=mk(x=>{for(let yy=0;yy<L.H;yy++)for(let xx=0;xx<L.W;xx++){const ch=L.rows[yy][xx];if(ch!=='#'){drawFloor(xx,yy,s,th,tk,L,x);if(ch==='u')vents.push([xx,yy]);}}});
   const b=mk(x=>{for(let yy=0;yy<L.H;yy++)for(let xx=0;xx<L.W;xx++){const ch=L.rows[yy][xx];if('#dpfxo'.includes(ch))drawBlock(ch,xx,yy,s,th,tk,L,x);else if('m!@'.includes(ch))live.push([ch,xx,yy]);}});
-  return TLc={s,d:dpr,L,th,tk,pad,w,h,f,b,vents,live};
+  return TLc={s,d:dpr,L,th,tk,pad,w,h,cw:f.width/dpr,ch:f.height/dpr,f,b,vents,live};
 }
 function renderGame(){
   ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -601,7 +614,7 @@ function renderGame(){
   const s=G.s,L=G.L,now=performance.now()/1000,K=G.K;
   let sx=0,sy=0;if(G.shake>0){sx=(Math.random()-.5)*12*G.shake;sy=(Math.random()-.5)*12*G.shake;}
   ctx.save();ctx.translate(G.ox+sx,G.oy+sy);const X=x=>x*s,Y=y=>y*s;
-  const TL=tileLayers();ctx.drawImage(TL.f,-TL.pad,-TL.pad,TL.w,TL.h);if(K.crawl)for(const v of TL.vents)drawFloor(v[0],v[1],s,th,tk,L);
+  const TL=tileLayers(),tax=Math.round((G.ox+sx-TL.pad)*dpr)/dpr-(G.ox+sx),tay=Math.round((G.oy+sy-TL.pad)*dpr)/dpr-(G.oy+sy);ctx.drawImage(TL.f,tax,tay,TL.cw,TL.ch);if(K.crawl)for(const v of TL.vents)drawFloor(v[0],v[1],s,th,tk,L);
   const st=L.start,all=G.docsGot===G.docsTotal;
   ctx.fillStyle='#FFB3CB';ctx.strokeStyle=INK;ctx.lineWidth=2;rr(ctx,st.x*s+s*.08,st.y*s+s*.08,s*.84,s*.84,s*.2);ctx.fill();ctx.stroke();
   ctx.fillStyle='#FF4F86';ctx.font='800 '+Math.max(9,Math.round(s*.22))+'px '+FONT_B;ctx.textAlign='center';ctx.textBaseline='middle';ctx.direction='rtl';ctx.fillText('میز من',X(st.x+.5),Y(st.y+.5));
@@ -628,7 +641,7 @@ function renderGame(){
     const g=ctx.createRadialGradient(ox,oy,0,ox,oy,Math.max(1,r*s));
     const col=w.state==='eating'?'150,160,170':w.sees?'235,70,80':w.cam?'90,170,255':th.night?'255,236,170':(w.boss&&G.docsGot>0?'255,150,60':'255,205,50');
     g.addColorStop(0,'rgba('+col+','+(th.night?.35:.55)+')');g.addColorStop(1,'rgba('+col+',.12)');ctx.fillStyle=g;ctx.fill();}
-  ctx.drawImage(TL.b,-TL.pad,-TL.pad,TL.w,TL.h);for(const v of TL.live)drawBlock(v[0],v[1],v[2],s,th,tk,L);
+  ctx.drawImage(TL.b,tax,tay,TL.cw,TL.ch);for(const v of TL.live)drawBlock(v[0],v[1],v[2],s,th,tk,L);
   const kt=Math.floor(K.y)*L.W+Math.floor(K.x),inCl=L.hide.has(kt)&&!K.walking&&G.state!=='escort';
   for(const t of L.hide){const x=t%L.W,y=(t/L.W)|0;if(!(inCl&&t===kt))drawCloset(x,y,s,false,now);}
   for(const c of G.cams)drawCam(c,s,now);
@@ -718,7 +731,7 @@ function drawPortraits(t){
 function topChips(){return `<div class="chip">${IC.coin}<span>${fa(save.coins)}</span></div><div class="chip">${IC.starOn}<span>${fa(starTotal())}</span></div>`;}
 let titleFloor=-1; // bottom of the title menu, measured lazily so the heroes stand below it
 function titleScreen(){
-  titleFloor=-1;if(G&&G.chase&&CHASE)CHASE.stop();
+  titleFloor=-1;resetQuality();if(G&&G.chase&&CHASE)CHASE.stop();
   G=null;SC=null;setMode('title');AUDIO.music('title');
   const cont=save.started;
   show(`<div class="tbar"><button class="round sm" id="tSet" aria-label="تنظیمات">${IC.gear}</button><div class="chips">${topChips()}</div></div>
@@ -781,7 +794,7 @@ function settingsScreen(back){
 }
 
 /* ================= Tower (level select) ================= */
-function goTower(){
+function goTower(){resetQuality();
   if(G&&G.chase&&CHASE)CHASE.stop();
   G=null;SC=null;setMode('tower');AUDIO.music('title');hud.classList.remove('chase');
   const cur=LEVELS.findIndex((l,i)=>unlocked(i)&&!(save.stars[i]>0));
@@ -1221,9 +1234,8 @@ function wireGarage(back){
 /* ================= Loop ================= */
 let last=performance.now();
 function frame(now){
-  const raw=(now-last)/1000,dt=Math.max(0,Math.min(.05,raw));last=now;clock+=dt;
-  if(!document.hidden&&raw<.5&&(mode==='play'||mode==='scene')&&dprCap>1){slowT+=raw;if(raw>.028)slowN+=raw;
-    if(slowT>=2.5){if(slowN/slowT>.5&&(window.devicePixelRatio||1)>1){dprCap=dprCap>1.5?1.5:1;resize();}slowT=slowN=0;}}
+  if(cap30&&mode==='play'&&G&&G.chase&&now-last<30){requestAnimationFrame(frame);return;}
+  const f0=performance.now(),raw=(now-last)/1000,dt=Math.max(0,Math.min(.05,raw));last=now;clock+=dt;
   try{
     if(mode==='play'&&G){
       if(G.chase){ctx.setTransform(dpr,0,0,dpr,0,0);if(G.started&&CHASE){if(G.state==='play')CHASE.update(dt);CHASE.render(ctx);}else renderMenuBG(clock);}
@@ -1233,6 +1245,7 @@ function frame(now){
     else renderMenuBG(clock);
     drawPortraits(clock);if(!screenEl.hidden&&screenEl.querySelector('canvas.vprev'))drawVehPreviews();
   }catch(e){console.error(e);}
+  govern(raw,performance.now()-f0);
   requestAnimationFrame(frame);
 }
 resize();titleScreen();requestAnimationFrame(frame);
