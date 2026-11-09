@@ -865,12 +865,14 @@ function pauseMenu(){
     <div class="pz-name">${G.def.name}${G.endless?'':' · مرحله‌ی '+fa(G.idx+1)}</div>${goalsHtml(G.def)}
     <button class="btn big" id="pRes">${IC.play} ادامه</button>
     <div class="row2"><button class="btn alt" id="pRe">${IC.restart} از اول</button><button class="btn alt" id="pShop">${IC.bag} فروشگاه</button></div>
-    <div class="row2"><button class="btn alt" id="pSet">${IC.gear} تنظیمات</button><button class="btn alt" id="pQuit">${IC.home} برج</button></div></div>`,'over');
+    <div class="row2"><button class="btn alt" id="pSet">${IC.gear} تنظیمات</button><button class="btn alt" id="pQuit">${G.endless?IC.car+' پیست':IC.map+' برج'}</button></div>
+    <button class="btn alt" id="pHome">${IC.home} صفحه‌ی اصلی</button></div>`,'over');
   on('#pRes',()=>{hideScreen();G.state='play';if(ch)CHASE.pause(false);});
   on('#pRe',()=>{refundUsed();if(ch)CHASE.stop();if(G.endless)startEndless(G.def.chase.vehicle);else startLevel(G.idx,G.coffeeKey);});
   on('#pShop',()=>shopScreen(pauseMenu));
   on('#pSet',()=>settingsScreen(pauseMenu));
   on('#pQuit',()=>{refundUsed();if(ch)CHASE.stop();const e=G.endless;G=null;if(e)endlessScreen(titleScreen);else goTower();});
+  on('#pHome',()=>{refundUsed();if(ch)CHASE.stop();G=null;titleScreen();});
 }
 
 /* ================= Wardrobe ================= */
