@@ -83,9 +83,11 @@ function makeWorker(G,d){
 function makeCam(d){return{cam:true,x:d.x+.5,y:d.y+.5,angles:d.angles,ai:0,dir:d.angles[0],wait:d.pause,pause:d.pause,range:d.range,fov:d.fov,state:'routine',t:0,turn:d.turn||.9};}
 function wPathTo(G,e,tx,ty){const r=findPath(G,Math.floor(e.x),Math.floor(e.y),tx,ty);return r?r.path.slice(1):[];}
 function moveAlong(e,dt,speed,turnRate){
-  const p=e.path[0],dx=p.x-e.x,dy=p.y-e.y,d=Math.hypot(dx,dy),st=speed*dt;
-  if(d>.001)e.dir=turnToward(e.dir,Math.atan2(dy,dx),turnRate*dt);
-  if(d<=st){e.x=p.x;e.y=p.y;e.path.shift();}else{e.x+=dx/d*st;e.y+=dy/d*st;}
+  let st=speed*dt,first=true; // carry the leftover step past path nodes (same speed at 30/60/120 Hz); never across a vent jump
+  while(e.path.length&&st>0){const p=e.path[0],dx=p.x-e.x,dy=p.y-e.y,d=Math.hypot(dx,dy);
+    if(d>1.6&&!first)break;first=false;
+    if(d>.001)e.dir=turnToward(e.dir,Math.atan2(dy,dx),turnRate*dt);
+    if(d<=st){e.x=p.x;e.y=p.y;e.path.shift();st-=d;}else{e.x+=dx/d*st;e.y+=dy/d*st;st=0;}}
   e.walking=true;
 }
 function wArrived(G,w){

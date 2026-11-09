@@ -3,7 +3,7 @@ const AUDIO = (() => {
   'use strict';
   const settings = { sfx: true, music: true, voice: true };
   const W = typeof window !== 'undefined' ? window : {};
-  const MUSIC_VOL = 0.08;
+  const MUSIC_VOL = 0.1;
   let ctx = null, sfxB = null, musB = null, voxB = null, thinkB = null, nbuf = null, curve = null;
   let timer = null, inst = null, want = null, ducked = false;
   let eng = null, engWant = null;
@@ -18,7 +18,10 @@ const AUDIO = (() => {
         const AC = W.AudioContext || W.webkitAudioContext;
         if (!AC) return;
         ctx = new AC();
-        const master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+        try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {} // iOS: play even when the ring switch is on silent
+        const master = ctx.createGain(); master.gain.value = 1.35;
+        let lim = null; try { lim = ctx.createDynamicsCompressor(); lim.threshold.value = -12; lim.knee.value = 8; lim.ratio.value = 6; lim.attack.value = 0.004; lim.release.value = 0.2; lim.connect(ctx.destination); } catch (e) { lim = null; }
+        master.connect(lim || ctx.destination); // limiter: louder without crackling
         sfxB = ctx.createGain(); sfxB.gain.value = 0.5; sfxB.connect(master);
         voxB = ctx.createGain(); voxB.gain.value = 0.45; voxB.connect(master);
         musB = ctx.createGain(); musB.gain.value = ducked ? MUSIC_VOL * 0.4 : MUSIC_VOL; musB.connect(master);
@@ -633,6 +636,7 @@ const AUDIO = (() => {
   }
 
   function suspend(){try{if(typeof ctx!=='undefined'&&ctx&&ctx.state==='running')ctx.suspend();}catch(e){}}
-  return { settings, unlock, suspend, sfx, voice, voiceLine, speak, music, duck, engine,
+  function resume(){try{if(typeof ctx!=='undefined'&&ctx&&(ctx.state==='suspended'||ctx.state==='interrupted')){const p=ctx.resume();if(p&&p.catch)p.catch(()=>{});}}catch(e){}}
+  return { settings, unlock, suspend, resume, sfx, voice, voiceLine, speak, music, duck, engine,
     sfxNames: Object.keys(S), voices: Object.keys(VP).filter(k => k !== '_'), tracks: Object.keys(TR) };
 })();

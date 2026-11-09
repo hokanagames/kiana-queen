@@ -58,7 +58,7 @@ function sceneFx(f){
 function voiceKey(who){if(who==='katy'&&SC&&SC.actors.katy&&SC.actors.katy.sugar)return'katyEvil';return who;}
 function sceneUpdate(dt){
   if(!SC||SC.done)return;
-  const sk=document.getElementById('skipB');if(sk)sk.hidden=!(SC.t>1.2&&!SC.idle&&!SC.def.noSkip);
+  const sk=document.getElementById('skipB');if(sk)sk.hidden=!(SC.t>1.2&&!SC.idle&&!SC.def.noSkip);const hb=document.getElementById('homeB');if(hb)hb.hidden=!(SC.t>1.2);
   SC.t+=dt;if(SC.trans){SC.trans.t+=dt;if(SC.trans.t>1.9)SC.trans=null;}SC.shake=Math.max(0,SC.shake-dt);SC.flash=Math.max(0,SC.flash-dt*2.5);SC.fade=Math.max(0,SC.fade-dt*2.5);
   for(const id in SC.actors){const a=SC.actors[id];if(a.hopT!=null)a.hopT+=dt;}
   for(const f of SC.fx)f.t+=dt;SC.fx=SC.fx.filter(f=>f.t<(f.type==='text'?1.4:1));
@@ -69,9 +69,9 @@ function sceneUpdate(dt){
   if(SC.k>=1&&!SC.waitTap&&!SC.idle){SC.holdT+=dt;if(SC.holdT>=SC.hold)nextBeat();}
 }
 function skipScene(){
-  if(!SC||SC.done||SC.idle)return;SC.skipping=true;let n=0;
-  while(SC&&!SC.done&&!SC.idle&&n++<600){if(SC.k<1){SC.k=1;applyTween(true);}SC.line='';nextBeat();}
-  if(SC){SC.skipping=false;SC.fx=[];SC.shake=0;SC.flash=0;SC.trans=null;}
+  if(!SC||SC.done||SC.idle)return;const s=SC;s.skipping=true;let n=0;
+  while(SC===s&&!s.done&&!s.idle&&n++<600){if(s.k<1){s.k=1;applyTween(true);}s.line='';nextBeat();}
+  s.skipping=false;if(SC===s){s.fx=[];s.shake=0;s.flash=0;s.trans=null;}
 }
 function sceneTap(){
   if(!SC||SC.done)return;
@@ -85,7 +85,7 @@ function startTalk(who,text,think){
   if(SC&&SC.skipping){SC.line='';return;}
   const el=$('#talk'),narr=who==='narrator',p=lookOf(who)||PEOPLE.kiana;
   el.hidden=false;el.classList.remove('ready');el.classList.toggle('narr',narr);el.classList.toggle('think',!!think);
-  const nm=$('#talkName');nm.textContent=narr?'راوی':think?'💭 '+p.name+' با خودش':p.name;
+  const nm=$('#talkName');nm.textContent=narr?'راوی':think?p.name+' با خودش':p.name;
   nm.style.background=narr?'#E3E8EC':think?'#EDE6FF':p.shirt;nm.style.color=narr||think||p.shirt==='#FFFFFF'?'#22303C':'#fff';
   SC.line=text;SC.typed=0;SC.who=who;SC.think=!!think;
   if(AUDIO.voiceLine)AUDIO.voiceLine(voiceKey(who),text);

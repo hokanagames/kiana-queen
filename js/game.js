@@ -3,7 +3,7 @@
    Kiana Queen — game core: state, play, rendering, screens, flow
    ============================================================ */
 const $=s=>document.querySelector(s);
-const cv=$('#game'),ctx=cv.getContext('2d');
+const cv=$('#game'),ctx=cv.getContext('2d'),mainCtx=ctx;
 const hud=$('#hud'),screenEl=$('#screen'),toastEl=$('#toast'),layer=$('#sceneLayer');
 const fa=n=>String(n).replace(/\d/g,d=>'۰۱۲۳۴۵۶۷۸۹'[d]);
 const fmtTime=t=>{t=Math.max(0,Math.ceil(t));return fa(Math.floor(t/60))+':'+fa(String(t%60).padStart(2,'0'));};
@@ -57,6 +57,8 @@ const IC={
   printer:SV('<rect x="6" y="3" width="12" height="6" fill="#fff" stroke="#22303C" stroke-width="1.8"/><rect x="3" y="8" width="18" height="9" rx="2" fill="#9AA6B2" stroke="#22303C" stroke-width="2"/><rect x="6.5" y="14" width="11" height="7" fill="#fff" stroke="#22303C" stroke-width="1.8"/><circle cx="17.5" cy="11" r="1.2" fill="#62C784"/>'),
   car:SV('<path d="M3 15.5V12l2.5-4.5h9L18 11l3 1v3.5z" fill="#8FE0C2" stroke="#22303C" stroke-width="2" stroke-linejoin="round"/><path d="M7 8.3l-1.5 3h5.3V8.3zM12.3 8.3v3H16l-2-3z" fill="#D7F3FF" stroke="#22303C" stroke-width="1.4"/><circle cx="7.5" cy="16" r="2.4" fill="#22303C"/><circle cx="16.5" cy="16" r="2.4" fill="#22303C"/><rect x="12" y="11.6" width="3.2" height="3" fill="#FF8FB5"/>'),
   moto:SV('<circle cx="5.5" cy="16" r="3.5" fill="none" stroke="#22303C" stroke-width="2.4"/><circle cx="18.5" cy="16" r="3.5" fill="none" stroke="#22303C" stroke-width="2.4"/><path d="M5.5 16l4-6h5l4 6M9.5 10l-1-3h-3M14.5 10l2-3h2.5" fill="none" stroke="#E5484D" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 10.5h6l-1.5 3h-3z" fill="#E5484D" stroke="#22303C" stroke-width="1.4"/>'),
+  check:SV('<path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#1E8A5A" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>'),
+  cross:SV('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="#E5484D" stroke-width="3.2" stroke-linecap="round"/>'),
   back:SV('<path d="M9 5l7 7-7 7" fill="none" stroke="#22303C" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>')
 };
 const MECH_IC={vent:IC.vent,printer:IC.printer,car:IC.car,moto:IC.moto,cup:IC.cup,tap:IC.tap,desk:IC.desk,closet:IC.closet,noise:IC.noise,door:IC.door,ear:IC.ear,cam:IC.cam,snow:IC.snow,clock:IC.clock,zzz:IC.zzz,moon:IC.moon,laser:IC.laser,steam:IC.steam,skull:IC.skull,secret:IC.secret};
@@ -67,12 +69,21 @@ const FRESH=()=>({coins:PAY.startCoins,stars:[],best:{},beans:{},secrets:{},clue
   look:{kiana:{},hiroman:{}},set:{sfx:true,music:true,voice:true},started:false});
 let save=FRESH();
 /* fill missing fields of a loaded (or restored-from-code) save; returns null if it isn't a save */
-function normSave(s){if(!s||typeof s!=='object'||!s.gadgets)return null;const f=FRESH(),v=Object.assign(f,s);v.set=Object.assign(f.set,s.set||{});v.look=Object.assign(f.look,s.look||{});v.gadgets=Object.assign(f.gadgets,s.gadgets||{});for(const k in v.gadgets)v.gadgets[k]=Math.max(0,v.gadgets[k]|0);if(!Array.isArray(v.stars))v.stars=[];v.coins=Math.max(0,+v.coins||0);return v;}
+function normSave(s){if(!s||typeof s!=='object'||Array.isArray(s)||!s.gadgets||typeof s.gadgets!=='object')return null;
+  const f=FRESH(),v=Object.assign(FRESH(),s);
+  for(const k in f)if(f[k]&&typeof f[k]==='object'&&!Array.isArray(f[k])&&(!v[k]||typeof v[k]!=='object'||Array.isArray(v[k])))v[k]=f[k];
+  v.set=Object.assign(f.set,s.set&&typeof s.set==='object'?s.set:{});v.look=Object.assign(f.look,s.look&&typeof s.look==='object'?s.look:{});
+  for(const w of['kiana','hiroman'])if(!v.look[w]||typeof v.look[w]!=='object')v.look[w]={};
+  v.gadgets=Object.assign(f.gadgets,s.gadgets);for(const k in v.gadgets)v.gadgets[k]=Math.max(0,v.gadgets[k]|0);
+  v.stars=Array.isArray(v.stars)?v.stars.map(x=>Math.max(0,Math.min(3,x|0))):[];
+  v.coins=Number.isFinite(+v.coins)?Math.max(0,Math.floor(+v.coins)):0;return v;}
 try{save=normSave(JSON.parse(localStorage.getItem(SAVE_KEY)))||FRESH();}catch(e){save=FRESH();}
+if(save.pendingUse&&typeof save.pendingUse==='object'){for(const k in save.gadgets)save.gadgets[k]+=Math.max(0,save.pendingUse[k]|0);}save.pendingUse=null;
 /* Ask the browser to never auto-delete our data (Chrome/Android/Safari 17+; no-op elsewhere). Asked once, after real progress. */
 let askedKeep=false;
 function keepStorage(){if(askedKeep||!save.started)return;askedKeep=true;try{const S=navigator.storage;if(S&&S.persist)S.persisted().then(p=>p||S.persist()).catch(()=>{});}catch(e){}}
-function persist(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(save));}catch(e){}keepStorage();}
+function persist(){save.pendingUse=G&&G.used&&!G.refunded&&(G.state==='play'||G.state==='paused')?Object.assign({},G.used):null;
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify(save));}catch(e){}keepStorage();}
 /* Backup code: the whole save as text (with a checksum), so a player can restore it after clearing data, on a new phone or a new web address */
 function hashStr(j){let h=0;for(let i=0;i<j.length;i++)h=(h*31+j.charCodeAt(i))|0;return (h>>>0).toString(36);}
 function saveCode(){const j=JSON.stringify(save);return 'KQ1-'+btoa(unescape(encodeURIComponent(j)))+'-'+hashStr(j);}
@@ -91,8 +102,10 @@ const coffeeOpen=k=>{const c=COFFEES[k];return c.beans?beanCount()>=c.beans:maxR
 function sfx(type,arg){AUDIO.sfx(type,arg);}
 for(const ev of['pointerdown','pointerup','touchend','click','keydown'])addEventListener(ev,()=>AUDIO.unlock(),true);
 /* pause + silence when the app goes to the background */
-document.addEventListener('visibilitychange',()=>{if(document.hidden){persist();if(mode==='play'&&G&&G.state==='play')pauseMenu();if(AUDIO.suspend)AUDIO.suspend();}else AUDIO.unlock();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){persist();if(mode==='play'&&G&&G.state==='play')pauseMenu();if(AUDIO.suspend)AUDIO.suspend();}else if(AUDIO.resume)AUDIO.resume();});
 addEventListener('pagehide',persist);
+addEventListener('contextmenu',e=>{if(!(e.target&&e.target.closest&&e.target.closest('.codebox')))e.preventDefault();});
+document.addEventListener('gesturestart',e=>e.preventDefault());
 /* shuffle-bag picker: a line never repeats until the whole pool was used */
 const BAGS={};
 function pick(key,arr){let b=BAGS[key];if(!b||!b.length||b.n!==arr.length){b=arr.map((_,i)=>i).sort(()=>Math.random()-.5);b.n=arr.length;BAGS[key]=b;}return arr[b.pop()];}
@@ -100,7 +113,8 @@ function pick(key,arr){let b=BAGS[key];if(!b||!b.length||b.n!==arr.length){b=arr
 /* ================= Modes & screens ================= */
 function setMode(m){mode=m;layer.hidden=m!=='scene';hud.hidden=m!=='play';if(m!=='scene')hideTalk();}
 function show(html,cls){screenEl.className=cls||'';if(cls&&/over|brief|catch/.test(cls))hud.hidden=true;screenEl.innerHTML='<div class="wrap">'+html+'</div>';screenEl.hidden=false;screenEl.scrollTop=0;}
-function hideScreen(){screenEl.hidden=true;screenEl.innerHTML='';if(mode==='play'){hud.hidden=false;layout();}}
+let inputBlock=0;
+function hideScreen(){inputBlock=performance.now()+250;screenEl.hidden=true;screenEl.innerHTML='';if(mode==='play'){hud.hidden=false;layout();}}
 let toastT=0;
 function toast(txt,small){toastEl.textContent=txt;toastEl.classList.toggle('small',!!small);toastEl.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>toastEl.classList.remove('on'),small?2300:1500);}
 const on=(id,fn)=>{const e=$(id);if(e)e.onclick=ev=>{sfx('click');fn(ev);};};
@@ -108,6 +122,8 @@ function musicForLevel(def){return def.chase?'chase':def.boss?'boss':def.night?'
 
 /* ================= Level runtime ================= */
 function levelTheme(def){return def.theme||CHAPTERS[def.ch].theme;}
+/* how fast suspicion fills: chapter base, plus a gentle ramp from level 10 on (capped) */
+function levelDiff(i,def){return Math.min(1.9,(CH_DIFF[def.ch]||1)*(1+Math.max(0,i-9)*.008));}
 function startLevel(idx,coffeeKey){
   if(G&&G.chase&&CHASE)CHASE.stop();
   const def=LEVELS[idx],cf=COFFEES[coffeeKey]||COFFEES.drip;
@@ -116,7 +132,7 @@ function startLevel(idx,coffeeKey){
   const tk=levelTheme(def);
   G=makeWorld(def);
   Object.assign(G,{idx,def,tk,th:THEMES[tk]||THEMES.lobby,coffeeKey,cf,ab:cf.ab,t:0,wt:0,state:'brief',susp:0,suspPeak:0,alertCD:0,shake:0,phones:[],noises:[],placing:null,parts:[],says:[],
-    marker:null,endT:0,bonusTime:0,bonusCoins:0,boxT:0,frozen:false,shown:false,caught:0,used:{donut:0,phone:0,box:0},thought:null,flags:{},secretGot:false,glint:0,diff:CH_DIFF[def.ch]||1});
+    marker:null,endT:0,bonusTime:0,bonusCoins:0,boxT:0,frozen:false,shown:false,caught:0,used:{donut:0,phone:0,box:0},thought:null,flags:{},secretGot:false,glint:0,diff:levelDiff(idx,def)});
   G.items=G.L.items.map(i=>Object.assign({got:false,ph:Math.random()*6},i));
   G.docsTotal=G.items.filter(i=>i.kind==='doc').length;G.coinsTotal=G.items.filter(i=>i.kind==='coin').length;G.docsGot=0;G.coinsGot=0;G.beanGot=false;
   G.friends=(def.friends||[]).map(f=>Object.assign({},f,{x:f.x+.5,y:f.y+.5,said:false,t:0}));
@@ -153,7 +169,7 @@ function goalText(g,def){const x=GOALS[g];return typeof x.t==='function'?x.t(fa(
 function goalsHtml(def,res){
   const first=def.chase?(def.chase.endless?'تا جای ممکن دور برو!':def.chase.mode==='escape'?'سالم فرار کن':'بهشون برس و نگهشون دار'):'پرونده‌ها رو بردار و برگرد سر میزت';
   const rows=[['finish',first]].concat(def.goals.map(g=>[g,goalText(g,def)]));
-  return '<div class="goals">'+rows.map((r,n)=>{const ok=res?res[n]:null;return `<div class="goal ${ok===true?'ok':ok===false?'no':''}"><span class="gs">${IC.starOn}<b>${fa(n+1)}</b></span><span>${r[1]}</span>${ok===true?'<i>✓</i>':ok===false?'<i>✗</i>':''}</div>`;}).join('')+'</div>';
+  return '<div class="goals">'+rows.map((r,n)=>{const ok=res?res[n]:null;return `<div class="goal ${ok===true?'ok':ok===false?'no':''}"><span class="gs">${IC.starOn}<b>${fa(n+1)}</b></span><span>${r[1]}</span>${ok===true?'<i>'+IC.check+'</i>':ok===false?'<i>'+IC.cross+'</i>':''}</div>`;}).join('')+'</div>';
 }
 function mechCard(m){const M=MECH[m];if(!M)return'';const nw=!save.mech[m];
   return `<div class="mech ${nw?'new':''}">${MECH_IC[M.icon]||IC.secret}<div class="mt"><b>${M.name}${nw?'<em>جدید!</em>':''}</b><span>${M.desc}</span></div></div>`;}
@@ -176,7 +192,7 @@ function showBrief(){
   on('#bGo',()=>{for(const m of def.intro||[])save.mech[m]=1;persist();hideScreen();G.state='play';sfx('levelStart');
     if(def.chase){G.started=true;if(CHASE)CHASE.start(def,{coffee:cf,onEnd:chaseEnd,skin:typeof vehOf==='function'?vehOf(def.chase.vehicle):null});else chaseEnd({win:true,reason:'caught',t:30,hits:0,coins:0,coinsTotal:0});return;}
     const g=G;setTimeout(()=>{if(G===g&&G.state==='play'&&def.think)think(def.think,5);},500);
-    if(G.idx<2&&def.think){const h=$('#hHint');h.textContent='💭 '+def.think;h.classList.remove('off');setTimeout(()=>{if(G===g&&!G.placing)h.classList.add('off');},7000);}});
+    if(G.idx<2&&def.think){const h=$('#hHint');h.textContent=def.think;h.classList.remove('off');setTimeout(()=>{if(G===g&&!G.placing)h.classList.add('off');},7000);}});
 }
 function layout(){
   if(!G||mode!=='play'||G.chase||hud.hidden)return;
@@ -186,11 +202,14 @@ function layout(){
   const s=Math.max(10,Math.floor(Math.min(aw/G.L.W,ah/G.L.H)));
   G.s=s;G.ox=Math.round((vw-s*G.L.W)/2);G.oy=Math.round(top+(ah-s*G.L.H)/2);
 }
+let dprCap=2,slowT=0,slowN=0;
 function resize(){
-  dpr=Math.min(2,window.devicePixelRatio||1);vw=innerWidth;vh=innerHeight;
+  dpr=Math.min(dprCap,window.devicePixelRatio||1);vw=innerWidth;vh=innerHeight;
   cv.width=Math.round(vw*dpr);cv.height=Math.round(vh*dpr);cv.style.width=vw+'px';cv.style.height=vh+'px';
-  dk.width=cv.width;dk.height=cv.height;layout();
+  dk.width=cv.width;dk.height=cv.height;layout();titleFloor=-1;
+  if(rotateNeeded()&&mode==='play'&&G&&G.state==='play')pauseMenu();
 }
+function rotateNeeded(){try{return matchMedia('(orientation:landscape) and (max-height:500px) and (pointer:coarse)').matches;}catch(e){return false;}}
 const dk=document.createElement('canvas'),dctx=dk.getContext('2d');
 addEventListener('resize',resize);
 
@@ -237,12 +256,13 @@ function usePrinter(pr){
   sayAt(w,pick('prSay',['کی دستگاه کپی رو روشن کرد؟','باز کاغذ گیر کرد؟!','این دستگاه جن داره!','خرت‌خرت... برم ببینم چشه.','کی صد تا کپی از صورتش گرفته؟!']),2.4);
   once('printerTip',()=>think('عالیه! تا سرش به کاغذهاست، من رد می‌شم.',2.6));
 }
-cv.addEventListener('pointerdown',e=>{pDown=true;if(G&&G.chase){if(G.state==='play'&&G.started&&CHASE)CHASE.pointer('down',e.clientX,e.clientY);return;}tapAt(e.clientX,e.clientY,true);});
-cv.addEventListener('pointermove',e=>{if(G&&G.chase){if(G.state==='play'&&G.started&&CHASE)CHASE.pointer('move',e.clientX,e.clientY);return;}if(pDown)tapAt(e.clientX,e.clientY,false);});
+cv.addEventListener('pointerdown',e=>{if(performance.now()<inputBlock)return;pDown=true;if(G&&G.chase){if(G.state==='play'&&G.started&&CHASE)CHASE.pointer('down',e.clientX,e.clientY);return;}tapAt(e.clientX,e.clientY,true);});
+cv.addEventListener('pointermove',e=>{if(performance.now()<inputBlock)return;if(G&&G.chase){if(G.state==='play'&&G.started&&CHASE)CHASE.pointer('move',e.clientX,e.clientY);return;}if(pDown)tapAt(e.clientX,e.clientY,false);});
 addEventListener('pointerup',e=>{pDown=false;if(G&&G.chase&&G.state==='play'&&G.started&&CHASE)CHASE.pointer('up',e.clientX,e.clientY);});
 addEventListener('pointercancel',()=>pDown=false);
 layer.addEventListener('pointerdown',e=>{e.preventDefault();sceneTap();});
 {const sb=$('#skipB');sb.addEventListener('pointerdown',e=>e.stopPropagation());sb.onclick=e=>{e.stopPropagation();sfx('click');skipScene();};}
+{const hb=$('#homeB');hb.addEventListener('pointerdown',e=>e.stopPropagation());hb.onclick=e=>{e.stopPropagation();sfx('click');hideTalk();titleScreen();};}
 addEventListener('keydown',e=>{if(mode==='scene'&&(e.key===' '||e.key==='Enter'))sceneTap();
   if(mode==='play'&&G&&G.state==='play'){if(e.key==='Escape')pauseMenu();else if(G.chase&&G.started&&CHASE&&['ArrowLeft','ArrowRight','ArrowUp',' '].includes(e.key)){e.preventDefault();CHASE.key(e.key);}}});
 
@@ -261,11 +281,14 @@ function backAction(){
   return true;
 }
 {const CapApp=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.App;
- if(CapApp)CapApp.addListener('backButton',()=>{try{if(!backAction())CapApp.exitApp();}catch(e){console.error(e);}});}
+ if(CapApp){CapApp.addListener('backButton',()=>{try{if(!backAction())CapApp.exitApp();}catch(e){console.error(e);}});
+    CapApp.addListener('appStateChange',st=>{try{if(st.isActive)AUDIO.unlock();else{persist();if(mode==='play'&&G&&G.state==='play')pauseMenu();if(AUDIO.suspend)AUDIO.suspend();}}catch(e){}});}}
+/* load every font face early (Safari may keep canvas text on the fallback font otherwise) */
+try{if(document.fonts)['500 16px "Baloo Bhaijaan 2"','400 16px Vazirmatn','600 16px Vazirmatn','800 16px Vazirmatn','16px Lalezar'].forEach(f=>document.fonts.load(f,'آب۱'));}catch(e){}
 for(const k of['donut','phone','box'])$('#g_'+k).onclick=()=>useGadget(k);
 function useGadget(k){
   if(!G||G.chase||G.state!=='play')return;
-  if(save.gadgets[k]<=0){sfx('open');quickShop(k);return;}
+  if(!(save.gadgets[k]>0)){sfx('open');quickShop(k);return;}
   sfx('tap');
   if(k==='box'){if(G.boxT>0)return;save.gadgets.box--;G.used.box++;persist();G.boxT=8;sfx('box');addPart(G.K.x,G.K.y-.7,'رفتم تو کارتن!','#8B5A2B');updateHud();return;}
   G.placing=G.placing===k?null:k;
@@ -299,7 +322,7 @@ const LINES={
   low:['اثر قهوه داره می‌پره... باید عجله کنم.','چشمام داره سنگین می‌شه... زودتر!','باتریم داره قرمز می‌شه!','یه‌کم دیگه قهوه داشتم چی می‌شد...'],
   out:['قهوه‌ام تموم شد... کند شدم و خمیازه‌هام صدا می‌ده!','تموم شد! حالا مثل لاک‌پشت خواب‌آلودم.','قهوه... تموم... شد... خمیازه‌ها لوم می‌دن!'],
   doc1:['یکی گرفتم! با پرونده دستم دیگه نباید دیده بشم...','اولی تو جیبم! از الان باید روح باشم.','گرفتمش! حالا هر نگاهی یعنی باخت.'],
-  docN:['اینم از این!','یکی دیگه!','پرونده‌ی بعدی هم مال من!','آخ جون، این‌یکی هم!'],
+  docN:['اینم از این!','یکی دیگه!','پرونده‌ی بعدی هم مال من!','آخ جون، این یکی هم!'],
   docAll:['همه رو دارم! حالا فقط سالم برگردم سر میزم.','تمومه! حالا برمی‌گردم، آروم و بی‌صدا.','کیسه پره! میز من، دارم میام.'],
   escort:['خب... برگشتم سر خونه‌ی اول. این بار با دقت بیشتر!','اوکی، دوباره. این بار از پشت سرشون.','نکته: به نورهای زرد بیشتر احترام بذارم.','دفعه‌ی بعد اول صبر می‌کنم، بعد می‌رم.','باشه باشه، از اول. فندق، تو هم حواست باشه!'],
   hushOk:['حق‌السکوت دادم... گرون شد ولی ارزششو داشت.','سکه‌هام رفت، ولی آبروم موند!','این خرج رو یه جایی می‌نویسم: «خسارت فضولی».'],
@@ -424,9 +447,9 @@ function update(dt){
   }
   G.alertCD-=dt;
   if(wdt>0){
-    const rate=((G.ab==='cool'||G.ab==='all')?.6:1)*G.diff;
+    const rate=((G.ab==='cool'||G.ab==='all')?.6:1)*G.diff*(seen&&seen.boss?1.15:1);
     if(seen){if(G.alertCD<=0){sfx('alert');G.alertCD=1.3;}G.susp+=wdt*1.05*rate*(1+close*.8);}
-    else G.susp=Math.max(0,G.susp-wdt*.5);
+    else G.susp=Math.max(0,G.susp-wdt*.5/(1+(G.diff-1)*.6));
   }
   G.suspPeak=Math.max(G.suspPeak,G.susp);
   if(G.susp>=1){triggerCatch(seen||G.workers[0]);return;}
@@ -457,7 +480,7 @@ function updateHud(){
 }
 
 /* ================= Game rendering ================= */
-function drawFloor(x,y,s,th,tk,L){
+function drawFloor(x,y,s,th,tk,L,cx){const ctx=cx||mainCtx;
   const px=x*s,py=y*s,ch=L.rows[y][x];
   ctx.fillStyle=(x+y)%2?th.floorA:th.floorB;ctx.fillRect(px,py,s+.5,s+.5);
   if(tk==='archive'){ctx.strokeStyle='rgba(120,80,40,.18)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(px+((y%2)?s*.5:0),py);ctx.lineTo(px+((y%2)?s*.5:0),py+s);ctx.stroke();}
@@ -471,7 +494,7 @@ function drawFloor(x,y,s,th,tk,L){
     ctx.beginPath();ctx.moveTo(px+s*.18,py+s*.3);ctx.lineTo(px+s*.38,py+s*.14);ctx.moveTo(px+s*.55,py+s*.82);ctx.lineTo(px+s*.82,py+s*.58);ctx.stroke();
     ctx.strokeStyle='rgba(46,127,216,.55)';ctx.lineWidth=Math.max(1,s*.035);ctx.beginPath();for(let i=0;i<4;i++){const xx=px+s*(.3+i*.13);ctx.moveTo(xx,py+s*.52);ctx.quadraticCurveTo(xx+s*.06,py+s*.42,xx+s*.12,py+s*.52);}ctx.stroke();}
 }
-function drawBlock(ch,x,y,s,th,tk,L){
+function drawBlock(ch,x,y,s,th,tk,L,cx){const ctx=cx||mainCtx;
   const px=x*s,py=y*s,lw=Math.max(1.5,s*.045);ctx.lineWidth=lw;ctx.strokeStyle=INK;
   if(ch==='#'){ctx.fillStyle=th.wall;ctx.fillRect(px,py,s+.5,s+.5);
     if(y+1<L.H&&L.rows[y+1][x]!=='#'){ctx.fillStyle=th.wallFace;ctx.fillRect(px,py+s*.7,s+.5,s*.3+.5);
@@ -530,7 +553,8 @@ function drawItem(it,s,now){
 }
 function drawLaser(x,y,s,onNow,now){
   const px=x*s,py=y*s+s*.5;
-  if(onNow){ctx.save();ctx.shadowColor='#FF2D55';ctx.shadowBlur=s*.4;ctx.strokeStyle='rgba(255,45,85,.95)';ctx.lineWidth=Math.max(2,s*.09);ctx.beginPath();ctx.moveTo(px-1,py);ctx.lineTo(px+s+1,py);ctx.stroke();ctx.restore();
+  if(onNow){ctx.save();ctx.lineCap='round';ctx.strokeStyle='rgba(255,45,85,.22)';ctx.lineWidth=Math.max(6,s*.32);ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px+s,py);ctx.stroke();ctx.restore();
+    ctx.strokeStyle='rgba(255,45,85,.95)';ctx.lineWidth=Math.max(2,s*.09);ctx.beginPath();ctx.moveTo(px-1,py);ctx.lineTo(px+s+1,py);ctx.stroke();
     ctx.strokeStyle='rgba(255,220,230,.9)';ctx.lineWidth=Math.max(1,s*.03);ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px+s,py);ctx.stroke();}
   else{ctx.save();ctx.setLineDash([s*.08,s*.12]);ctx.strokeStyle='rgba(255,45,85,.35)';ctx.lineWidth=Math.max(1,s*.03);ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px+s,py);ctx.stroke();ctx.restore();}
 }
@@ -547,7 +571,9 @@ function bubble(x,y,s,t,bg,maxW){
   ctx.beginPath();ctx.moveTo(x-s*.08,y-1);ctx.lineTo(x,y+s*.14);ctx.lineTo(x+s*.08,y-1);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillRect(x-s*.07,y-ctx.lineWidth-1,s*.14,ctx.lineWidth+1);
   ctx.fillStyle=(bg==='#fff'||bg==='#FFFBEA')?INK:'#fff';ctx.textAlign='center';ctx.textBaseline='middle';lines.forEach((l,i)=>ctx.fillText(l,bx+w/2,y-h+fs*.2+lh*(i+.5)));ctx.restore();
 }
-function wrapText(t,maxW){const words=t.split(' '),lines=[];let cur='';for(const w of words){const tt=cur?cur+' '+w:w;if(ctx.measureText(tt).width>maxW&&cur){lines.push(cur);cur=w;}else cur=tt;}if(cur)lines.push(cur);return lines;}
+const wrapMemo=new Map();
+function wrapText(t,maxW){const key=ctx.font+'|'+maxW+'|'+t,m=wrapMemo.get(key);if(m)return m;if(wrapMemo.size>200)wrapMemo.clear();const r=wrapRaw(t,maxW);wrapMemo.set(key,r);return r;}
+function wrapRaw(t,maxW){const words=t.split(' '),lines=[];let cur='';for(const w of words){const tt=cur?cur+' '+w:w;if(ctx.measureText(tt).width>maxW&&cur){lines.push(cur);cur=w;}else cur=tt;}if(cur)lines.push(cur);return lines;}
 function thoughtBubble(x,y,s,text){
   const fs=Math.max(14,Math.round(s*.33));ctx.save();ctx.font='500 '+fs+'px '+FONT_T;ctx.direction='rtl';
   const lines=wrapText(text,Math.min(Math.max(s*6.2,fs*14),vw*.8)),lh=fs*1.45,w=Math.max(...lines.map(l=>ctx.measureText(l).width))+fs*1.2,h=lh*lines.length+fs*.8;
@@ -557,13 +583,25 @@ function thoughtBubble(x,y,s,text){
   const dy=by<y?1:-1;for(let i=0;i<2;i++){circ(ctx,x+(bx+w/2-x)*.15*(1-i),(dy>0?by+h:by)+dy*s*(.16+i*.2),s*(.09-i*.03));ctx.fill();ctx.stroke();}
   ctx.fillStyle='#5A4A7A';ctx.textAlign='center';ctx.textBaseline='middle';lines.forEach((l,i)=>ctx.fillText(l,bx+w/2,by+fs*.4+lh*(i+.5)));ctx.restore();
 }
+/* The level map never changes during play, so floors and static blocks are drawn once per layout into two
+   offscreen layers (big win on cheap phones). Printers and doors stay live; vents are redrawn while crawling. */
+let TLc=null;
+function tileLayers(){
+  const s=G.s,L=G.L,th=G.th,tk=G.tk;
+  if(TLc&&TLc.s===s&&TLc.d===dpr&&TLc.L===L&&TLc.th===th&&TLc.tk===tk)return TLc;
+  const pad=6,w=L.W*s+pad*2,h=L.H*s+pad*2,vents=[],live=[];
+  const mk=draw=>{const c=document.createElement('canvas');c.width=Math.ceil(w*dpr);c.height=Math.ceil(h*dpr);const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,pad*dpr,pad*dpr);draw(x);return c;};
+  const f=mk(x=>{for(let yy=0;yy<L.H;yy++)for(let xx=0;xx<L.W;xx++){const ch=L.rows[yy][xx];if(ch!=='#'){drawFloor(xx,yy,s,th,tk,L,x);if(ch==='u')vents.push([xx,yy]);}}});
+  const b=mk(x=>{for(let yy=0;yy<L.H;yy++)for(let xx=0;xx<L.W;xx++){const ch=L.rows[yy][xx];if('#dpfxo'.includes(ch))drawBlock(ch,xx,yy,s,th,tk,L,x);else if('m!@'.includes(ch))live.push([ch,xx,yy]);}});
+  return TLc={s,d:dpr,L,th,tk,pad,w,h,f,b,vents,live};
+}
 function renderGame(){
   ctx.setTransform(dpr,0,0,dpr,0,0);
   const th=G.th,tk=G.tk;ctx.fillStyle=th.bg;ctx.fillRect(0,0,vw,vh);
   const s=G.s,L=G.L,now=performance.now()/1000,K=G.K;
   let sx=0,sy=0;if(G.shake>0){sx=(Math.random()-.5)*12*G.shake;sy=(Math.random()-.5)*12*G.shake;}
   ctx.save();ctx.translate(G.ox+sx,G.oy+sy);const X=x=>x*s,Y=y=>y*s;
-  for(let y=0;y<L.H;y++)for(let x=0;x<L.W;x++)if(L.rows[y][x]!=='#')drawFloor(x,y,s,th,tk,L);
+  const TL=tileLayers();ctx.drawImage(TL.f,-TL.pad,-TL.pad,TL.w,TL.h);if(K.crawl)for(const v of TL.vents)drawFloor(v[0],v[1],s,th,tk,L);
   const st=L.start,all=G.docsGot===G.docsTotal;
   ctx.fillStyle='#FFB3CB';ctx.strokeStyle=INK;ctx.lineWidth=2;rr(ctx,st.x*s+s*.08,st.y*s+s*.08,s*.84,s*.84,s*.2);ctx.fill();ctx.stroke();
   ctx.fillStyle='#FF4F86';ctx.font='800 '+Math.max(9,Math.round(s*.22))+'px '+FONT_B;ctx.textAlign='center';ctx.textBaseline='middle';ctx.direction='rtl';ctx.fillText('میز من',X(st.x+.5),Y(st.y+.5));
@@ -590,7 +628,7 @@ function renderGame(){
     const g=ctx.createRadialGradient(ox,oy,0,ox,oy,Math.max(1,r*s));
     const col=w.state==='eating'?'150,160,170':w.sees?'235,70,80':w.cam?'90,170,255':th.night?'255,236,170':(w.boss&&G.docsGot>0?'255,150,60':'255,205,50');
     g.addColorStop(0,'rgba('+col+','+(th.night?.35:.55)+')');g.addColorStop(1,'rgba('+col+',.12)');ctx.fillStyle=g;ctx.fill();}
-  for(let y=0;y<L.H;y++)for(let x=0;x<L.W;x++){const ch=L.rows[y][x];if('#dpfxom!@'.includes(ch))drawBlock(ch,x,y,s,th,tk,L);}
+  ctx.drawImage(TL.b,-TL.pad,-TL.pad,TL.w,TL.h);for(const v of TL.live)drawBlock(v[0],v[1],v[2],s,th,tk,L);
   const kt=Math.floor(K.y)*L.W+Math.floor(K.x),inCl=L.hide.has(kt)&&!K.walking&&G.state!=='escort';
   for(const t of L.hide){const x=t%L.W,y=(t/L.W)|0;if(!(inCl&&t===kt))drawCloset(x,y,s,false,now);}
   for(const c of G.cams)drawCam(c,s,now);
@@ -651,7 +689,8 @@ function renderTitle(t){
   ctx.setTransform(dpr,0,0,dpr,0,0);
   const W=Math.min(vw,560),st={x:(vw-W)/2,y:0,w:W,h:vh};
   drawBG(ctx,'street',vw,vh,st,t,{night:0});
-  const s=W*.36,ky=vh*.86;
+  if(titleFloor<0){const m=document.querySelector('#screen .menu');titleFloor=m?m.getBoundingClientRect().bottom:0;}
+  const ky=vh*.86,s=Math.max(40,Math.min(W*.36,(ky-titleFloor-6)/1.2));
   drawPerson(ctx,vw/2-W*.17,ky,s,Object.assign({},lookOf('kiana'),{t,arms:'wave',mood:'happy',mess:.12+.12*Math.sin(t*.7)}));
   drawPerson(ctx,vw/2+W*.2,ky+4,s*.95,Object.assign({},lookOf('hiroman'),{t:t+1,arms:'hold',held:'cup',mood:'happy'}));
   drawBird(ctx,vw/2+Math.cos(t*.9)*W*.35,ky-s*1.25+Math.sin(t*1.8)*s*.15,s*.11,t,{fly:true,flip:Math.sin(t*.9)>0});
@@ -660,11 +699,13 @@ function renderMenuBG(t){
   ctx.setTransform(dpr,0,0,dpr,0,0);skyGrad(ctx,vw,vh,['#6CC8F5','#BDE8FF','#E8F7FF']);
   for(let i=0;i<5;i++)cloud(ctx,((hsh(i)*vw+t*10*(1+i*.3))%(vw+200))-100,vh*(.08+hsh(i+3)*.8),16+hsh(i+5)*16);
 }
+let portraitT=-1;
 function drawPortraits(t){
+  if(t>=portraitT&&t-portraitT<.05)return;portraitT=t;
   const playing=mode==='play'&&screenEl.hidden;
   for(const el of document.querySelectorAll('canvas.portrait')){
     if(playing&&el.id!=='bossPic')continue;
-    if(!el.isConnected||el.offsetParent===null)continue;const r=el.getBoundingClientRect();if(!r.width)continue;const W=Math.round(r.width*2),H=Math.round(r.height*2);
+    if(!el.isConnected||el.offsetParent===null)continue;const r=el.getBoundingClientRect();if(!r.width||r.bottom<0||r.top>vh)continue;const W=Math.round(r.width*2),H=Math.round(r.height*2);
     if(el.width!==W||el.height!==H){el.width=W;el.height=H;}
     const c=el.getContext('2d');c.clearRect(0,0,W,H);
     const who=lookOf(el.dataset.who);if(!who)continue;const mood=el.dataset.mood||'happy',full=el.dataset.full;
@@ -675,7 +716,9 @@ function drawPortraits(t){
 
 /* ================= Title ================= */
 function topChips(){return `<div class="chip">${IC.coin}<span>${fa(save.coins)}</span></div><div class="chip">${IC.starOn}<span>${fa(starTotal())}</span></div>`;}
+let titleFloor=-1; // bottom of the title menu, measured lazily so the heroes stand below it
 function titleScreen(){
+  titleFloor=-1;if(G&&G.chase&&CHASE)CHASE.stop();
   G=null;SC=null;setMode('title');AUDIO.music('title');
   const cont=save.started;
   show(`<div class="tbar"><button class="round sm" id="tSet" aria-label="تنظیمات">${IC.gear}</button><div class="chips">${topChips()}</div></div>
@@ -771,7 +814,7 @@ function goTower(){
   on('#tShop',()=>shopScreen(goTower));
   for(const b of screenEl.querySelectorAll('.node'))b.onclick=()=>{sfx('click');enterLevel(+b.dataset.i,{replay:save.stars[+b.dataset.i]>0});};
   const c=screenEl.querySelector('.node.cur')||screenEl.querySelector('.node:not(.locked)');
-  if(c)setTimeout(()=>c.scrollIntoView({block:'center',behavior:'instant'}),30);
+  if(c)setTimeout(()=>c.scrollIntoView({block:'center',behavior:'auto'}),30);
 }
 
 /* ================= Shop ================= */
@@ -877,7 +920,7 @@ function clueScreen(i,then,review){
     <button class="btn big ${review?'':'hide'}" id="cPin">${review?'برگرد':'ادامه'}</button>`,'over cluescr');
   const el=$('#clueText');let k=0,timer=null,done=false;
   const finish=()=>{if(done)return;done=true;clearInterval(timer);el.textContent=doc;
-    const kn=$('#kNote'),nd=$('#nDest');setTimeout(()=>{if(kn){kn.classList.add('on');AUDIO.voice('kiana','آ',{think:true});}},250);setTimeout(()=>{if(nd)nd.classList.add('on');$('#cPin').classList.remove('hide');},note?900:300);};
+    const kn=$('#kNote'),nd=$('#nDest');setTimeout(()=>{if(kn){kn.classList.add('on');AUDIO.voice('kiana','آ',{think:true});}},250);setTimeout(()=>{if(nd)nd.classList.add('on');const cp=$('#cPin');if(cp)cp.classList.remove('hide');},note?900:300);};
   const startType=()=>{if(done)return;timer=setInterval(()=>{k+=2;el.textContent=doc.slice(0,k);if(k%4===0)AUDIO.voice('narrator',doc[k]||'',{});if(k>=doc.length)finish();},36);};
   if(review){el.textContent=doc;done=true;}else{setTimeout(()=>{sfx('stamp');const f=screenEl.querySelector('.folder');if(f)f.classList.add('stamped');},500);setTimeout(()=>{sfx('paper');startType();},950);}
   screenEl.querySelector('.folder').onclick=finish;
@@ -886,9 +929,10 @@ function clueScreen(i,then,review){
 function meetScene(i){
   const def=LEVELS[i],lines=def.clue.meet,n=Object.keys(save.clues).length,noHome=CHAPTERS[def.ch].noHome;
   const sc=def.chase?talkScene(lines,null,'road',{night:!def.chase.dawn,dawn:!!def.chase.dawn}):noHome?talkScene(lines,levelTheme(def),'office',{theme:levelTheme(def)}):talkScene(lines,null,'cafe',{night:1,board:n,fresh:true});
-  sc.beats.unshift({say:['narrator',def.chase?'کنار جاده. موتورها هنوز داغن. یه جلسه‌ی سرپایی.':noHome?pick('meetT',['یه گوشه‌ی تاریک، پشت راه‌پله. جلسه‌ی فوری.','پشت یه ستون، دور از چراغ‌قوه‌ها. یه جلسه‌ی یواشکی.','کنار دریچه‌ی تهویه. همه سرها نزدیک هم.']):pick('meetD',['شب. کافه هیرومن. جلسه‌ی کارآگاهی دور تخته‌ی سرنخ‌ها.','کرکره‌ی کافه پایینه، ولی چراغ‌ها روشن. جلسه‌ی شبانه!','بوی قهوه، صدای گچ روی تخته. وقت جلسه‌ست.'])]});
+  sc.beats.unshift({say:['narrator',def.chase?'کنار جاده، موتورها هنوز داغن. یه جلسه‌ی سرپایی برپاست.':noHome?pick('meetT',['یه گوشه‌ی تاریک، پشت راه‌پله. جلسه‌ی فوری.','پشت یه ستون، دور از چراغ‌قوه‌ها. یه جلسه‌ی یواشکی.','کنار دریچه‌ی تهویه، همه سرهاشونو آوردن جلو.']):pick('meetD',['شبه و توی کافه هیرومن، دور تخته‌ی سرنخ‌ها جلسه‌ی کارآگاهیه.','کرکره‌ی کافه پایینه، ولی چراغ‌ها روشنه. جلسه‌ی شبانه!','بوی قهوه، صدای گچ روی تخته. وقت جلسه‌ست.'])]});
   sc.music=noHome?'night':'cafe';
-  for(const id in sc.actors)sc.actors[id].y=.74;
+  const ids=Object.keys(sc.actors),na=ids.length;
+  ids.forEach((id,k)=>{const a=sc.actors[id];a.y=.74;if(!def.chase&&!noHome&&na>1){a.x=na===2?[.3,.7][k]:.14+k*(.72/(na-1));a.z=1;if(na>3)a.s*=.9;}});
   return sc;
 }
 
@@ -978,7 +1022,7 @@ function helperMorning(i,done){
   const check=setInterval(()=>{if(!SC||SC.done){clearInterval(check);return;}if(SC.idle){clearInterval(check);coffeePanel(i,done,{giver:who,list:h.coffees});}},80);
 }
 function coffeePanel(i,done,opt){
-  opt=opt||{};const def=LEVELS[i],giver=opt.giver||'hiroman';
+  hideTalk();opt=opt||{};const def=LEVELS[i],giver=opt.giver||'hiroman';
   let keys=Object.keys(COFFEES).filter(k=>(coffeeOpen(k)||k==='gold')&&(!opt.list||opt.list.includes(k)||k==='gold'||k==='drip'));
   const bar=(v,max)=>`<span class="bar5">${Array.from({length:5},(_,n)=>`<i class="${n<Math.round(v/max*5)?'on':''}"></i>`).join('')}</span>`;
   const freeH=CHAPTERS[def.ch].noHome;const card=k=>{const c=COFFEES[k],lockedGold=k==='gold'&&beanCount()<BEANS_NEED,can=!lockedGold&&(freeH||save.coins>=c.price),nw=save.cfSeen[k]===1&&!save.seen['cfUsed_'+k];
@@ -1004,7 +1048,7 @@ function coffeePanel(i,done,opt){
       {d:.7,set:{kiana:{sparkle:false,arms:'down',mood:'smug'}},to:{kiana:{x:-.3}},hold:0}],()=>done(k));
   };
 }
-const UP=['یه طبقه‌ی دیگه. پاهام می‌لرزه، ولی دلم نه.','بالاتر، تاریک‌تر... و بوی چای قوی‌تر.','هر طبقه که می‌رم بالا، به هیرومن نزدیک‌ترم.','آسانسور باری... جیرجیرش منو یاد کاشی‌های همکف می‌ندازه.','فندق، تو هم می‌ترسی؟ منم یه‌کم. ولی می‌ریم.','این برج چندتا طبقه داره؟ کی اینو ساخته؟ یه قوری‌دوست!'];
+const UP=['یه طبقه‌ی دیگه. پاهام می‌لرزه، ولی دلم نه.','بالاتر، تاریک‌تر... و بوی چای قوی‌تر.','هر طبقه که می‌رم بالا، به هیرومن نزدیک‌ترم.','آسانسور باری... جیرجیرش منو یاد کاشی‌های همکف می‌ندازه.','فندق، تو هم می‌ترسی؟ منم یه‌کم. ولی می‌ریم.','این برج چند تا طبقه داره؟ کی اینو ساخته؟ یه قوری‌دوست!'];
 function floorScene(i){
   const def=LEVELS[i],nx=LEVELS[i+1],n2=i<42?i-31:i-32,fl=fa(n2-1),fl2=fa(n2);
   return{bg:'elevator',bgo:{floor:fl},music:'night',actors:{kiana:{who:'kiana',x:.5,y:.7,s:S,mood:'smug',mess:.4,held:null}},
@@ -1038,7 +1082,7 @@ function renderWin(R){
   for(const k of R.nextCf)notes.push(`<div class="card unlock teaser">${IC.cup}<b>${nextNoHome?'یه قهوه‌ی جدید توی راهه: ':'فردا هیرومن یه قهوه‌ی جدید داره: '}${COFFEES[k].name}</b></div>`);
   for(const k of R.nextG)notes.push(`<div class="card unlock teaser">${IC[k]}<b>ابزار جدید باز شد: ${GADGETS[k].name}</b></div>`);
   const newFile=!save.clues[i];
-  const nextLabel=newFile?'📁 پرونده‌ی جدید رو باز کن!':i>=LEVELS.length-1?'پایان':nextNoHome?'طبقه‌ی بعد':'روز بعد';
+  const nextLabel=newFile?IC.doc+' پرونده‌ی جدید رو باز کن!':i>=LEVELS.length-1?'پایان':nextNoHome?'طبقه‌ی بعد':'روز بعد';
   const ttl=def.boss?'غول شکست خورد!':def.chase?(def.chase.mode==='escape'?'فرار کردیم!':'گرفتیمشون!'):'مأموریت انجام شد!';
   show(`<h2 class="ttl">${ttl}</h2>
     <div class="stars">${starHtml}</div>
@@ -1079,7 +1123,7 @@ function showFail(){
   setMode('tower');AUDIO.music(null);hud.classList.remove('chase');
   if(G.chase){const r=G.res||{},moto=G.def.chase.vehicle==='moto';
     const ttl=r.reason==='crashed'?(moto?'موتور زمین خورد!':'دوشیش داغون شد!'):r.reason==='caught'?'گیرمون انداختن!':'از دستمون در رفت!';
-    const kl=moto?pick('chaseFailM',['هیرومن، این بار من می‌گم کی بپیچی!','محکم‌تر بچسبم، تندتر بریم!','فندق، کلاه ایمنی‌تو ببند. دوباره!']):pick('chaseFail',['دوشیش، تو بهترین ماشین دنیایی. فقط... یه‌کم دیگه تمرین کنیم.','این بار حواسم به لاین‌ها هست!','فندق، کمربندتو ببند. دوباره می‌ریم!','نیترو رو زودتر می‌زنم!']);
+    const kl=moto?pick('chaseFailM',['هیرومن، این بار من می‌گم کی بپیچی!','محکم‌تر بچسبم، تندتر بریم!','فندق، کلاه ایمنی‌تو ببند. دوباره!']):pick('chaseFail',['دوشیش، تو بهترین ماشین دنیایی. فقط... یه‌کم دیگه تمرین کنیم.','این بار حواسم به خط‌ها هست!','فندق، کمربندتو ببند. دوباره می‌ریم!','نیترو رو زودتر می‌زنم!']);
     show(`<h2 class="ttl">${ttl}</h2><div class="card dlg short"><span class="who kiana">کیانا</span><p>«${kl}»</p></div>
       <p class="tipline">نکته: ${pick('chaseTip',['انگشتتو زودتر بکش؛ ماشین‌ها از دور معلومن.','نیترو رو توی جاده‌ی خلوت بزن، نه وسط ترافیک.','سکه‌ها رو فدای سلامتی نکن!','لکه‌های چای سُرت می‌دن؛ ازشون دوری کن.'])}</p>
       <button class="btn big" id="bRetry">${IC.restart} دوباره امتحان کن</button><button class="btn alt" id="bTower">${IC.map} برج</button>`,'over bust');
@@ -1102,7 +1146,7 @@ function showFail(){
 function endScreen(){
   G=null;SC=null;setMode('tower');AUDIO.music('win');
   show(`<h1 class="logo"><span class="k" style="font-size:50px">پایان فصل اول</span><span class="s">ادامه دارد...</span></h1>
-    <div class="row" style="justify-content:center;gap:8px"><canvas class="portrait" data-who="kiana" data-mood="love"></canvas><canvas class="portrait" data-who="hiroman" data-mood="love"></canvas></div>
+    <div class="row endp" style="justify-content:center;gap:8px"><canvas class="portrait" data-who="kiana" data-mood="love"></canvas><canvas class="portrait" data-who="hiroman" data-mood="love"></canvas></div>
     <div class="card"><p>کیانا «عملیات بی‌کافئین» رو متوقف کرد، کافه‌ی هیرومن رو پس گرفت و ۴۷ کافه‌ی شهر دوباره قهوه دارن!</p>
     <p class="muted">ستاره‌ها: ${fa(starTotal())} از ${fa(LEVELS.length*3)} · رازها: ${fa(secretCount())} از ${fa(secretTotal())} · دونه‌های طلایی: ${fa(beanCount())}</p>
     <p class="muted">فصل دوم: «انتقام چای»... به‌زودی</p></div>
@@ -1120,7 +1164,7 @@ const vehOwned=k=>{const v=VEHS()[k];return v&&(!v.price||(save.vowned||{})[k]);
 const chaseWon=vehicle=>!!save.set.test||LEVELS.some((l,i)=>l.chase&&l.chase.vehicle===vehicle&&(save.stars[i]||0)>0);
 const endlessOpen=()=>chaseWon('car')||chaseWon('moto');
 function drawVehPreviews(){
-  for(const el of screenEl.querySelectorAll('canvas.vprev')){const r=el.getBoundingClientRect();if(!r.width)continue;const W=Math.round(r.width*2),H=Math.round(r.height*2);
+  for(const el of screenEl.querySelectorAll('canvas.vprev')){const r=el.getBoundingClientRect();if(!r.width||r.bottom<0||r.top>vh)continue;const W=Math.round(r.width*2),H=Math.round(r.height*2);
     if(el.width!==W){el.width=W;el.height=H;}const c=el.getContext('2d');c.clearRect(0,0,W,H);
     if(typeof VEH_DRAW==='function'){try{VEH_DRAW(c,el.dataset.k,W/2,H*.88,Math.min(W*.38,H*.52),clock);}catch(e){}}}
 }
@@ -1129,7 +1173,7 @@ function endlessScreen(back){
   G=null;SC=null;setMode('tower');AUDIO.music('chase');hud.classList.remove('chase');
   if(!chaseWon(endType))endType=chaseWon('car')?'car':'moto';
   const k=vehOf(endType),v=VEHS()[k]||{name:'؟'},best=(save.endBest||{})[endType]||0;
-  const tab=(t,lab)=>`<button class="${endType===t?'on':''}" id="et_${t}" ${chaseWon(t)?'':'disabled'}>${lab}${chaseWon(t)?'':' 🔒'}</button>`;
+  const tab=(t,lab)=>`<button class="${endType===t?'on':''}" id="et_${t}" ${chaseWon(t)?'':'disabled'}>${lab}${chaseWon(t)?'':' '+IC.lock.replace('<svg','<svg class="ic16"')}</button>`;
   show(`<div class="sheet"><h2 class="sh-t">پیست بی‌نهایت</h2>
     <p class="muted center">تا جایی که می‌تونی برو! هر چی دورتر، جاده شلوغ‌تر. نصف سکه‌هایی که جمع کنی مال خودت می‌شه.</p>
     <div class="wtabs">${tab('car','ماشین')}${tab('moto','موتور')}</div>
@@ -1177,7 +1221,9 @@ function wireGarage(back){
 /* ================= Loop ================= */
 let last=performance.now();
 function frame(now){
-  const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
+  const raw=(now-last)/1000,dt=Math.max(0,Math.min(.05,raw));last=now;clock+=dt;
+  if(!document.hidden&&raw<.5&&(mode==='play'||mode==='scene')&&dprCap>1){slowT+=raw;if(raw>.028)slowN+=raw;
+    if(slowT>=2.5){if(slowN/slowT>.5&&(window.devicePixelRatio||1)>1){dprCap=dprCap>1.5?1.5:1;resize();}slowT=slowN=0;}}
   try{
     if(mode==='play'&&G){
       if(G.chase){ctx.setTransform(dpr,0,0,dpr,0,0);if(G.started&&CHASE){if(G.state==='play')CHASE.update(dt);CHASE.render(ctx);}else renderMenuBG(clock);}
